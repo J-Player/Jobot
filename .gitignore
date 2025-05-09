@@ -1,4 +1,9 @@
-.venv
+.venv*
 __pycache__
 .env
-*.html
+*.log
+jobs
+notebook
+downloaded_files
+docker
+!docker/*.yml

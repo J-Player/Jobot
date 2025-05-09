@@ -1,0 +1,30 @@
+searches:
+  indeed:
+    - job: desenvolvedor java
+      locations: ["Rio de Janeiro, RJ", "Remoto"]
+    - job: java
+      locations: ["Rio de Janeiro, RJ", "Remoto"]
+  infojob:
+    - job: desenvolvedor java
+      locations: ["Rio de Janeiro - RJ"]
+  linkedin:
+    - job: Desenvolvedor Java
+      locations: ["Rio de Janeiro, Brasil"]
+filters:
+  - key: title
+    exclude:
+      - programming_languages: ["delphi", "c", "c#", "c++", "php", "golang", "go", "swift", "kotlin"]
+      - seniorities: ["pleno", "senior", "pl", "sr", "especialista", "specialist", "mid", "midlevel", "ii", "iii", "ll", "lll"]
+      - positions: ["lead", "architect", "arquiteto", "mobile", "seguranca", "principal", "qa", "staff", "diretor", "gerente", "manager"]
+      - so: ["android", "ios"]
+  - key: description
+    exclude:
+      - languages: ["english", "ingles avancado", "ingles fluente"]
+      - seniorities: ["pleno", "senior", "pl", "sr", "especialista", "specialist", "mid", "midlevel", "ii", "iii", "ll", "lll"]
+  - key: description
+    full_match: false
+    include:
+      - programming_languages: ["java", "spring", "javascript", "typescript", "python"]
+  - key: company
+    exclude:
+      - companies: ["netvagas", "bairesdev"]

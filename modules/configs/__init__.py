@@ -1,0 +1,1 @@
+from .jobot_config import JobotConfig
