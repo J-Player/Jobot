@@ -5,5 +5,4 @@ __pycache__
 jobs
 notebook
 downloaded_files
-docker
-!docker/*.yml
+docker/data
