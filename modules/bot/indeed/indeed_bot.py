@@ -82,6 +82,7 @@ class IndeedBot(JobBot):
         except Exception as err:
             self._logger.error(err)
             await self._save_jobs()
+            raise err
         finally:
             self._captcha_task.cancel()
             await self._captcha_task

@@ -70,7 +70,9 @@ class Bot(ABC):
                 await self._teardown()
             except Exception as err:
                 data = datetime.fromtimestamp(time.time())
-                self._driver.cdp.save_screenshot(f"{data.strftime("%d_%m_%Y_%H_%M_%S")}_ERROR.png")
+                dir_name = f"./screenshots/{self.__class__.__name__}"
+                os.makedirs(dir_name, exist_ok=True)
+                self._driver.cdp.save_screenshot(f"{dir_name}/{data.strftime("%d_%m_%Y_%H_%M_%S")}_ERROR.png")
                 self._logger.error(err)
             else:
                 self._logger.debug(f"Bot executado com sucesso!")
