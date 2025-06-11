@@ -59,7 +59,15 @@ class IndeedBot(JobBot):
                             for index, job_element in enumerate(job_list_elements, start=1):
                                 JOB_ID = job_element.get_attribute("id").split("_")[1]  # TODO: Verificar se problema dos ~1800 segundos foi corrigido
                                 job_element.click()
+                                # FIXME: Após o click, o captcha pode triggar, e acabar perdendo a referencia dos elementos
+                                # redirecionando para outra página após o captcha:
+                                # https://br.indeed.com/viewjob?jk=ID_DO_JOB&tk=1itd9sm7igbim83d&from=serp&vjs=3
                                 await self._captcha_condition.wait_for(lambda: not self._captcha_active)
+                                if "viewjob" in self._driver.cdp.get_current_url():
+                                        self._logger.warning(f"Redirecionamento detectado para URL: {self._driver.cdp.get_current_url()}")
+                                        self._logger.debug(f"Retornando à página anterior...")
+                                        self._driver.cdp.go_back()
+                                        self._logger.debug(f"URL atual: {self._driver.cdp.get_current_url()}")
                                 if not await self._job_exists(JOB_ID):
                                     job = IndeedJob(id=JOB_ID)
                                     job.url = f"https://br.indeed.com/viewjob?jk={JOB_ID}"
