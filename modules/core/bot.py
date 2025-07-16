@@ -101,7 +101,7 @@ class Bot(ABC):
                 # Verificação mais robusta do elemento
                 if not self._driver.cdp.is_element_present(selector_captcha):
                     continue
-                self._logger.debug("\n🔍 Captcha detectado! Pausando processamento...")
+                self._logger.debug("🔍 Captcha detectado! Pausando processamento...")
                 # Ativação do estado de captcha
                 async with self._captcha_condition:
                     self._captcha_active = True
@@ -117,7 +117,7 @@ class Bot(ABC):
                     self._logger.debug("✅ Captcha resolvido! Retomando processamento...\n")
                     self._captcha_condition.notify_all()
         except asyncio.CancelledError:
-            self._logger.error(f"✖ Task de captcha foi cancelada")
+            self._logger.warning(f"✖ Task de captcha foi cancelada")
         except Exception as e:
             self._logger.error(f"Erro inesperado na task de captcha: {str(e)}", exc_info=True)
         finally:

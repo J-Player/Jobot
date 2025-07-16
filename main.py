@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from modules.bot.indeed import IndeedBot, IndeedBotOptions
 from modules.bot.linkedin import LinkedinBot, LinkedinBotOptions
 from modules.configs.indeed_config import IndeedConfig
-from modules.configs.jobot_config import JobotConfig
 from modules.configs.linkedin_config import LinkedinConfig
 
 nest_asyncio.apply()
@@ -20,7 +19,6 @@ async def indeed():
     configs = IndeedConfig()
     options = IndeedBotOptions(
         username=os.getenv("INDEED_USER"),
-        password=os.getenv("INDEED_PASS"),
         searches=configs.get_searches(bot),
         filters=configs.get_filters(),
     )
@@ -43,4 +41,4 @@ async def linkedin():
 
 
 if __name__ == "__main__":
-    asyncio.run(indeed())
+    asyncio.run(indeed()) # FIXME: Implementar um listener para email para receber codigo de verificação

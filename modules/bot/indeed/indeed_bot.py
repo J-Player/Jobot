@@ -30,33 +30,33 @@ class IndeedBot(JobBot):
         url = "https://br.indeed.com"
         self._driver.uc_activate_cdp_mode(url)
         self._close_cookie_popup()
-        if self._username and self._password:
+        if self._username:
             await self._login()
 
     async def _start(self):
         try:
-            CAPTCHA_SELECTOR = "#JnAv0 div div"
+            CAPTCHA_SELECTOR = "#ovEdv1 div div"
             WRAPPER_SELECTOR = "//*[@id='jobsearch-ViewjobPaneWrapper']"
             self._captcha_task = asyncio.create_task(self._captcha(CAPTCHA_SELECTOR))
             await asyncio.sleep(1)  # Pequeno delay para permitir a criação da task
             async with self._captcha_condition:
                 self._logger.debug(f"Total de pesquisas para realizar: {len(self._searches)}")
                 for index, search in enumerate(self._searches, start=1):
-                    self._driver.cdp.sleep(5)  # Aguarda a lista carregar...
+                    await asyncio.sleep(5)  # Aguarda a lista carregar...
                     self._search_job(search)
                     self._logger.info(f"[{index} de {len(self._searches)}] Pesquisando vagas: {search.job} | Localização: {search.location}.")
+                    await asyncio.sleep(3)
                     await self._captcha_condition.wait_for(lambda: not self._captcha_active)
-                    self._driver.cdp.sleep(5)  # Aguarda a lista carregar...
                     current_page = 1
                     if self._driver.cdp.is_element_present(WRAPPER_SELECTOR):
                         while True:
-                            TOTAL_PAGES = self._get_pages()
-                            TOTAL_PAGES = len(TOTAL_PAGES) if TOTAL_PAGES else 1
-                            self._driver.cdp.sleep(5)
+                            await asyncio.sleep(5)
                             job_list_elements = self._get_job_list()
                             RESULT = len(job_list_elements)
                             self._logger.info(f"Página: {current_page} | Total de resultados encontrados: {RESULT}")
                             for index, job_element in enumerate(job_list_elements, start=1):
+                                await asyncio.sleep(1)
+                                await self._captcha_condition.wait_for(lambda: not self._captcha_active)
                                 JOB_ID = job_element.get_attribute("id").split("_")[1]  # TODO: Verificar se problema dos ~1800 segundos foi corrigido
                                 job_element.click()
                                 # FIXME: Após o click, o captcha pode triggar, e acabar perdendo a referencia dos elementos
@@ -105,31 +105,40 @@ class IndeedBot(JobBot):
             TimeoutError: Se o tempo limite for excedido.
             ValueError: Se o código for inválido.
         """
-        # Inicia o fluxo de login
-        self._driver.cdp.click("//*[@class='css-7dcbld eu4oa1w0']//a")
-        # Preenche o email
+        LOGIN_BUTTON_SELECTOR = "//*[@id='gnav-main-container']/div/div/div[2]/div[2]/div[2]/a"
         EMAIL_INPUT_SELECTOR = "//input[@type='email']"
-        BUTTON_SELECTOR = "//*[@id='emailform']/button"
-        self._driver.cdp.type(EMAIL_INPUT_SELECTOR, f"{self._username}\n")
-        self._driver.cdp.sleep(10)
-        self._driver.cdp.click(BUTTON_SELECTOR)
-        # Aguarda o campo de código
         CODE_INPUT_SELECTOR = "//*[@id='passcode-input']"
-        if not self._driver.cdp.wait_for_element_visible(CODE_INPUT_SELECTOR, timeout=10):
-            raise TimeoutError("Campo de código não apareceu após 10 segundos")
-        # Processo de validação do código
-        async with self._captcha_condition:
-            await self._captcha_condition.wait_for(lambda: not self._captcha_active)
-            self._logger.info(f"Código enviado para: {self._username} | Timeout: {timeout}s")
-            code = await self._get_user_code_async(timeout)
-            await self._submit_verification_code(CODE_INPUT_SELECTOR, code)
-            # Verifica se o login foi bem sucedido
-            if await self._is_login_successful():
-                self._logged = True
-            else:
-                raise ValueError("Falha no login - código inválido ou tempo excedido")
+        BUTTON_SUBMIT_SELECTOR = "//*[@id='emailform']/button"
+        ALERT_SELECTOR = "//*[@id='label-passcode-input-error']/div/div"
+        try:
+            async with self._captcha_condition:
+                self._driver.cdp.click(LOGIN_BUTTON_SELECTOR)
+                await self._captcha_condition.wait_for(lambda: not self._captcha_active)
+                self._driver.cdp.type(EMAIL_INPUT_SELECTOR, f"{self._username}\n")
+                await asyncio.sleep(10)
 
-    # TODO: Ainda não foi testado!
+                if self._driver.cdp.is_element_present(ALERT_SELECTOR):
+                    text = (self._driver.cdp.find_element(ALERT_SELECTOR).text).strip()
+                    if len(text) > 0:
+                        url = self._driver.cdp.get_current_url()
+                        self._logger.warning(f"Aviso detectado na página {url}: {text}")
+                        raise Exception(text)
+
+                if self._driver.cdp.is_element_present(BUTTON_SUBMIT_SELECTOR):
+                    self._driver.cdp.click(BUTTON_SUBMIT_SELECTOR)
+
+                await self._captcha_condition.wait_for(lambda: not self._captcha_active)
+                self._logger.info(f"Código enviado para o e-mail: {self._username} | Timeout: {timeout}s")
+                code = await self._get_user_code_async(timeout)
+                await self._submit_verification_code(CODE_INPUT_SELECTOR, code)
+                if await self._is_login_successful():
+                    self._logged = True
+                else:
+                    raise ValueError("Falha no login - código inválido ou tempo excedido")
+        except Exception as err:
+            self._logger.error(err)
+            raise err
+
     async def _get_user_code_async(self, timeout: int):
         """Obtém o código de verificação do usuário via CLI de forma assíncrona com timeout.
         Args:
@@ -156,7 +165,6 @@ class IndeedBot(JobBot):
                 continue
         raise TimeoutError("Tempo para inserção do código expirado")
 
-    # TODO: Ainda não foi testado!
     async def _submit_verification_code(self, input_selector: str, code: str):
         """Submete o código de verificação."""
         BUTTON_SELECTOR = "//*[@id='passpage-container']/main/div/div/div[2]/div/button[1]"
@@ -164,7 +172,6 @@ class IndeedBot(JobBot):
         self._driver.cdp.click(BUTTON_SELECTOR)
         await asyncio.sleep(2)  # Aguarda possível redirecionamento
 
-    # TODO: Ainda não foi testado!
     async def _is_login_successful(self):
         """Verifica se o login foi bem sucedido."""
         return not self._driver.cdp.is_element_present("//*[@class='css-1un0a8q e1wnkr790']")
@@ -182,7 +189,7 @@ class IndeedBot(JobBot):
         url = f"https://br.indeed.com/jobs?q={search.job}"
         if search.location is not None:
             url += f"&l={search.location}"
-        self._driver.cdp.get(url)
+        self._driver.cdp.get(f"{url}&sort=date")
 
     def _get_pages(self):
         SELECTOR_PAGINATION = "//*[@id='jobsearch-JapanPage']//nav//li/a"

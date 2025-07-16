@@ -71,17 +71,16 @@ class JobBot(Bot):
             self._logger.debug(f"Conexão com banco de dados estabelecida com sucesso!")
 
     async def _teardown(self):
-        if not self.__client._closed:
-            try:
+        try:
+            if not self.__client._closed:
                 self._logger.debug("Fechando conexões com banco de dados...")
                 await self.__client.close()
-            except Exception as err:
-                self._logger.error(f"Erro ao fechar conexão ao banco de dados: {str(err)}", exc_info=True)
-            else:
                 self._logger.debug(f"Conexão com banco de dados fechada com sucesso!")
-            finally:
-                self._logger.info(f"Total de jobs adicionados: {self.__jobs_inserted}")
-                self._logger.info(f"Total de jobs atualizados: {self.__jobs_updated}")
+        except Exception as err:
+            self._logger.error(f"Erro ao fechar conexão ao banco de dados: {str(err)}", exc_info=True)
+        finally:
+            self._logger.info(f"Total de jobs adicionados: {self.__jobs_inserted}")
+            self._logger.info(f"Total de jobs atualizados: {self.__jobs_updated}")
 
     async def _login(self):
         raise NotImplementedError(f"The method {self._login.__name__} must be implemented.")
