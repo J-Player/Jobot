@@ -49,41 +49,49 @@ class IndeedBot(JobBot):
                     await self._captcha_condition.wait_for(lambda: not self._captcha_active)
                     current_page = 1
                     if self._driver.cdp.is_element_present(WRAPPER_SELECTOR):
+                        retry = True
                         while True:
                             await asyncio.sleep(5)
+                            await self._captcha_condition.wait_for(lambda: not self._captcha_active)
                             job_list_elements = self._get_job_list()
                             RESULT = len(job_list_elements)
                             self._logger.info(f"Página: {current_page} | Total de resultados encontrados: {RESULT}")
-                            for index, job_element in enumerate(job_list_elements, start=1):
-                                await asyncio.sleep(1)
-                                await self._captcha_condition.wait_for(lambda: not self._captcha_active)
-                                JOB_ID = job_element.get_attribute("id").split("_")[1]  # TODO: Verificar se problema dos ~1800 segundos foi corrigido
-                                job_element.click()
-                                # FIXME: Após o click, o captcha pode triggar, e acabar perdendo a referencia dos elementos
-                                # redirecionando para outra página após o captcha:
-                                # https://br.indeed.com/viewjob?jk=ID_DO_JOB&tk=1itd9sm7igbim83d&from=serp&vjs=3
-                                await self._captcha_condition.wait_for(lambda: not self._captcha_active)
-                                if "viewjob" in self._driver.cdp.get_current_url():
-                                        self._logger.warning(f"Redirecionamento detectado para URL: {self._driver.cdp.get_current_url()}")
-                                        self._logger.debug(f"Retornando à página anterior...")
+                            try:
+                                for index, job_element in enumerate(job_list_elements, start=1):
+                                    await asyncio.sleep(1)
+                                    await self._captcha_condition.wait_for(lambda: not self._captcha_active)
+                                    JOB_ID = job_element.get_attribute("id").split("_")[1]  # TODO: Verificar se problema dos ~1800 segundos foi corrigido
+                                    if not await self._job_exists(JOB_ID):
+                                        job = IndeedJob(id=JOB_ID)
+                                        job.url = f"https://br.indeed.com/viewjob?jk={JOB_ID}"
+                                        job_element.click()
+                                        await asyncio.sleep(1)
+                                        await self._captcha_condition.wait_for(lambda: not self._captcha_active)
+                                        if not await self._get_job_data(job):
+                                            retry = False
+                                            raise Exception(f"Erro ao extrair dados do job de ID {JOB_ID}")
+                                        if self._filter_job(job):
+                                            self._append_job(job)
+                                            self._logger.info(f"[{index} de {RESULT}] {job.title}: {job.url}")
+                                        else:
+                                            self._logger.info(f"[{index} de {RESULT}] Job de ID {JOB_ID} foi descartado")
                                         self._driver.cdp.go_back()
-                                        self._logger.debug(f"URL atual: {self._driver.cdp.get_current_url()}")
-                                if not await self._job_exists(JOB_ID):
-                                    job = IndeedJob(id=JOB_ID)
-                                    job.url = f"https://br.indeed.com/viewjob?jk={JOB_ID}"
-                                    self._get_job_data(job)
-                                    if self._filter_job(job):
-                                        self._append_job(job)
-                                        self._logger.info(f"[{index} de {RESULT}] {job.title}: {job.url}")
                                     else:
-                                        self._logger.info(f"[{index} de {RESULT}] Job de ID {JOB_ID} foi descartado")
-                                else:
-                                    self._logger.info(f"[{index} de {RESULT}] Job de ID {JOB_ID} já foi extraído")
+                                        self._logger.info(f"[{index} de {RESULT}] Job de ID {JOB_ID} já foi extraído")
+                            except Exception as err:
+                                if retry:
+                                    retry = False
+                                    self._logger.warning(f"Erro ao extrair jobs da página {current_page}: {err}")
+                                    self._logger.warning(f"Realizando uma última tentativa...")
+                                    continue
+                                self._logger.error(f"Não foi possivel extrair jobs da página {current_page}: {err}")
+                                raise err
                             await self._save_jobs()
                             next_button = self._next_page()
                             if next_button is None:
                                 break
                             next_button.click()
+                            retry = True
                             current_page += 1
                     else:
                         self._logger.debug(f"Nenhum resultado encontrado para essa pesquisa")
@@ -215,33 +223,53 @@ class IndeedBot(JobBot):
             )
         ]
 
-    def _get_job_data(self, job: IndeedJob):
-        SELECTORS = {
-            "title": "//*[contains(@class, 'jobsearch-HeaderContainer')]//h2/span",
-            "location": "//*[contains(@data-testid, 'companyLocation')]",
-            "company": "//*[@data-company-name]",
-            "button": '//*[@id="jobsearch-ViewJobButtons-container"]//button',
-            "details": "//*[@id='jobDetailsSection']",
-            "benefits": "//*[@id='benefits']//li",
-            "description": "//*[@id='jobDescriptionText']",
-        }
-        TIMEOUT = 15
-        BUTTON_ELEMENT = self._driver.cdp.find_element(SELECTORS["button"])
-        job.easy_application = "indeedApplyButton" == BUTTON_ELEMENT.get_attribute("id")
-        job.title = self._driver.cdp.find_element(SELECTORS["title"], timeout=TIMEOUT).text_fragment
-        job.company = self._driver.cdp.find_element(SELECTORS["company"], timeout=TIMEOUT).text
-        job.location = self._driver.cdp.find_element(SELECTORS["location"], timeout=TIMEOUT).text
-        job.description = self._driver.cdp.find_element(SELECTORS["description"], timeout=TIMEOUT).text
-        if self._driver.cdp.is_element_present(SELECTORS["details"]):
-            details = dict()
-            sections = self._driver.cdp.find_elements(SELECTORS["details"] + '//div[@role="group"]', timeout=TIMEOUT)
-            for section in sections:
-                key = section.get_attribute("aria-label")
-                SELECTOR_SECTION = f"{SELECTORS["details"]}//div[@aria-label='{key}']"
-                values = self._driver.cdp.find_elements(SELECTOR_SECTION + "//ul/li//span")
-                details[key] = [*map(lambda v: v.text, values)]
-            job.details = details
-        if self._driver.cdp.is_element_present(SELECTORS["benefits"]):
-            BENEFIT_ELEMENTS = self._driver.cdp.find_elements(SELECTORS["benefits"])
-            job.benefits = [*map(lambda s: s.text, BENEFIT_ELEMENTS)]
-        return job
+    async def _get_job_data(self, job: IndeedJob, backoff: int = 1):
+        try:
+            SELECTORS = {
+                "title": "//*[@id='viewJobSSRRoot']//h1/span",
+                "location": [
+                    "//*[@id='viewJobSSRRoot']/div[2]/div[3]/div/div/div[1]/div[2]/div[1]/div[2]/div/div/div/div",
+                    "//*[@id='viewJobSSRRoot']/div[2]/div[3]/div/div/div[1]/div[3]/div[1]/div[2]/div/div/div/div",
+                ],
+                "company": "//*[@data-company-name]",
+                "button": '//*[@id="jobsearch-ViewJobButtons-container"]//button',
+                "details": "//*[@id='jobDetailsSection']",
+                "benefits": "//*[@id='benefits']//li",
+                "description": "//*[@id='jobDescriptionText']",
+            }
+            TIMEOUT = 15
+            BUTTON_ELEMENT = self._driver.cdp.find_element(SELECTORS["button"], timeout=TIMEOUT)
+            assert job.id in self._driver.cdp.get_current_url()
+            job.easy_application = "indeedApplyButton" == BUTTON_ELEMENT.get_attribute("id")
+            job.title = self._driver.cdp.find_element(SELECTORS["title"], timeout=TIMEOUT).text_fragment
+            job.company = self._driver.cdp.find_element(SELECTORS["company"], timeout=TIMEOUT).text
+            if self._driver.cdp.is_element_present(SELECTORS["location"][0]):
+                elements_location = self._driver.cdp.find_elements(SELECTORS["location"][0], timeout=TIMEOUT)
+            else:
+                elements_location = self._driver.cdp.find_elements(SELECTORS["location"][1], timeout=TIMEOUT)
+            job.location = " - ".join([el.text for el in elements_location[1:] if len(el.text) > 0])
+            job.description = self._driver.cdp.find_element(SELECTORS["description"], timeout=TIMEOUT).text
+            if self._driver.cdp.is_element_present(SELECTORS["details"]):
+                details = dict()
+                sections = self._driver.cdp.find_elements(SELECTORS["details"] + '//div[@role="group"]', timeout=TIMEOUT)
+                for section in sections:
+                    key = section.get_attribute("aria-label")
+                    SELECTOR_SECTION = f"{SELECTORS["details"]}//div[@aria-label='{key}']"
+                    values = self._driver.cdp.find_elements(SELECTOR_SECTION + "//ul/li//span")
+                    details[key] = [*map(lambda v: v.text, values)]
+                job.details = details
+            if self._driver.cdp.is_element_present(SELECTORS["benefits"]):
+                BENEFIT_ELEMENTS = self._driver.cdp.find_elements(SELECTORS["benefits"])
+                job.benefits = [*map(lambda s: s.text, BENEFIT_ELEMENTS)]
+            return True
+        except Exception as err:
+            EXPONENCIAL_BACKOFF = 5
+            MAX_RETRIES = 3
+            self._logger.warning(f"Erro durante a coleta de dados do job: {job.id}")
+            if backoff < MAX_RETRIES:
+                self._logger.warning(f"Tentando novamente em {EXPONENCIAL_BACKOFF ** backoff} segundos... (tentativas restantes: {MAX_RETRIES - backoff})")
+                await asyncio.sleep(EXPONENCIAL_BACKOFF ** backoff)
+                await self._captcha_condition.wait_for(lambda: not self._captcha_active)
+                return await self._get_job_data(job, backoff + 1)
+            self._logger.error(f"Não foi possivel coletar os dados do job: {job.id} | Erro: {err}")
+            return False
