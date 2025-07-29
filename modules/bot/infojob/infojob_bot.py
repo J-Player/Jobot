@@ -6,7 +6,6 @@ from time import time
 from modules.bot.infojob.infojob_job import InfoJobJob
 from modules.core import JobBot, JobBotOptions, JobFilterKey, JobSearch
 from modules.utils.string_handler import normalize_string
-from selenium.webdriver.common.keys import Keys
 
 
 class InfoJobJobFilterKey(JobFilterKey):
@@ -170,14 +169,18 @@ class InfoJobBot(JobBot):
         return not self._driver.cdp.is_element_present("//*[@class='css-1un0a8q e1wnkr790']")
 
     def _close_cookie_popup(self):
-        BUTTON_COOKIE_REJECT_ID = "//*[@id='didomi-notice-agree-button']"
+        BUTTON_COOKIE_LEARN_MORE_ID = "//*[@id='didomi-notice-learn-more-button']"
+        BUTTON_COOKIE_REJECT_ID = "//*[@id='btn-toggle-disagree']"
         self._logger.debug(f"Aguardando popup de cookies...")
-        self._driver.cdp.sleep(3)
-        if self._driver.is_element_present(BUTTON_COOKIE_REJECT_ID):
-            self._driver.cdp.click(BUTTON_COOKIE_REJECT_ID)
-            self._logger.debug(f"Aceitando cookies...")
+        try:
+            self._driver.cdp.wait_for_element_visible(BUTTON_COOKIE_LEARN_MORE_ID, timeout=15)
+        except:
+            self._logger.debug(f"Popup não encontrado")
             return
-        self._logger.debug(f"Popup não encontrado")
+        self._driver.cdp.click(BUTTON_COOKIE_LEARN_MORE_ID)
+        self._driver.cdp.wait_for_element_visible(BUTTON_COOKIE_LEARN_MORE_ID, timeout=15)
+        self._driver.cdp.click(BUTTON_COOKIE_REJECT_ID)
+        self._logger.debug(f"Rejeitando cookies...")
 
     def _search_job(self, search: JobSearch):
         job = re.sub(r"\s+", "+", search.job)
@@ -220,6 +223,7 @@ class InfoJobBot(JobBot):
         SELECTORS = {
             "title": "//*[@id='VacancyHeader']/div[1]/div/h2",
             "company": "//*[@id='VacancyHeader']/div[1]/div/div[1]/div[1]/a",
+            "company_confidential": "//*[@id='VacancyHeader']/div[1]/div/div[1]/div",
             "location": "//*[@id='VacancyHeader']/div[1]/div[1]/div[2]/div[1]",
             "salary": "//*[@id='VacancyHeader']/div[1]/div[1]/div[2]/div[2]",
             "job_type": "//*[@id='VacancyHeader']/div[1]/div/div[2]/div[3]",
@@ -230,7 +234,14 @@ class InfoJobBot(JobBot):
         TIMEOUT = 15
 
         job.title = self._driver.cdp.find_element(SELECTORS["title"], timeout=TIMEOUT).text_fragment
-        job.company = self._driver.cdp.find_element(SELECTORS["company"], timeout=TIMEOUT).text
+        if self._driver.cdp.is_element_present(SELECTORS["company"]):
+            job.company = self._driver.cdp.find_element(SELECTORS["company"], timeout=TIMEOUT).text
+        else:
+            text = self._driver.cdp.find_element(SELECTORS["company_confidential"], timeout=TIMEOUT).text
+            text = re.sub(r"\s+", " ", text).strip()
+            assert text.upper() == "EMPRESA CONFIDENCIAL"
+            job.company = self._driver.cdp.find_element(SELECTORS["company_confidential"], timeout=TIMEOUT).text
+
         job.location = self._driver.cdp.find_element(SELECTORS["location"], timeout=TIMEOUT).text_fragment
         job.description = self._driver.cdp.find_element(SELECTORS["description"], timeout=TIMEOUT).text
 
@@ -240,6 +251,7 @@ class InfoJobBot(JobBot):
         job.type = type
 
         job.salary = self._driver.cdp.find_element(SELECTORS["salary"], timeout=TIMEOUT).text
+        job.salary = re.sub(r"\s+", " ", job.salary).strip()
 
         details = dict()
         elements = self._driver.cdp.find_elements(SELECTORS["details"], timeout=TIMEOUT)
