@@ -31,7 +31,7 @@ class JobotConfig(ABC, metaclass=SingletonABCMeta):
             file = os.getenv("BOT_CONFIG_YML", "configs.yml")
             if not os.path.exists(file):
                 raise Exception(f"Arquivo {file} não encontrado.")
-            with open(file, "r") as f:
+            with open(file, "r", encoding="utf-8") as f:
                 JobotConfig._shared_config = yaml.safe_load(f)
             JobotConfig._shared_config_loaded = True
             self.config = JobotConfig._shared_config

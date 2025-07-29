@@ -13,7 +13,7 @@ searches:
       locations: ["Rio de Janeiro - RJ"]
   linkedin:
     - job: Desenvolvedor Java
-      locations: ["Rio de Janeiro, Brasil"]
+      locations: ["Rio de Janeiro e Região"]
 filters:
   - key: title
     exclude:
