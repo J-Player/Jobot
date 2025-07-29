@@ -28,6 +28,7 @@ class LinkedinBot(JobBot):
 
     def __init__(self, options: LinkedinBotOptions):
         super().__init__(options)
+        self._logged = False
 
     async def _setup(self):
         url = "https://www.linkedin.com/jobs/search"
@@ -48,9 +49,7 @@ class LinkedinBot(JobBot):
                 for index, search in enumerate(self._searches, start=1):
                     self._driver.cdp.sleep(5)
                     self._search_job(search)
-                    self._logger.info(
-                        f"[{index} de {len(self._searches)}] Pesquisando vagas: {search.job} | Localização: {search.location}"
-                    )
+                    self._logger.info(f"[{index} de {len(self._searches)}] Pesquisando vagas: {search.job} | Localização: {search.location}")
                     # await self._captcha_condition.wait_for(lambda: not self._captcha_active)
                     self._driver.cdp.sleep(5)
                     if self._driver.cdp.is_element_present(WRAPPER_SELECTOR):
@@ -61,11 +60,13 @@ class LinkedinBot(JobBot):
                             self._driver.cdp.sleep(10)
                             job_list_elements = self._get_job_list()
                             RESULT = len(job_list_elements)
-                            self._logger.info(f"Página: {current_page} | Total de resultados encontrados: {RESULT}")
                             if RESULT > 0:
-                                self._logger.debug(f"Total de vagas encontradas: {RESULT}")
+                                self._logger.info(f"Página: {current_page} | Total de resultados encontrados: {RESULT}")
                                 for i, job_element in enumerate(job_list_elements, start=1):
+                                    await asyncio.sleep(1.5)
+                                    # await self._captcha_condition.wait_for(lambda: not self._captcha_active)
                                     job_element.click()
+                                    await asyncio.sleep(1)
                                     # await self._captcha_condition.wait_for(lambda: not self._captcha_active)
                                     CURRENT_URL = self._driver.cdp.get_current_url()
                                     URL_PATTERN = r"currentJobId=(\d+)"
@@ -73,8 +74,9 @@ class LinkedinBot(JobBot):
                                     if not await self._job_exists(JOB_ID):
                                         job = LinkedinJob(id=JOB_ID)
                                         job.url = f"https://www.linkedin.com/jobs/view/{JOB_ID}"
-                                        self._get_job_data(job)
-                                        if self._filter_job(job):
+                                        if self._get_job_data(job) is None:
+                                            self._logger.info(f"[{i} de {RESULT}] Job de ID {JOB_ID} expirou")
+                                        elif self._filter_job(job):
                                             self._append_job(job)
                                             self._logger.info(f"[{i} de {RESULT}] {job.title}: {job.url}")
                                         else:
@@ -95,9 +97,12 @@ class LinkedinBot(JobBot):
                                     break
                                 btn_next.click()
                                 current_page += 1
+                            else:
+                                break
         except Exception as err:
             self._logger.error(err)
             await self._save_jobs()
+            raise err
         finally:
             # self._captcha_task.cancel()
             # await self._captcha_task
@@ -114,13 +119,22 @@ class LinkedinBot(JobBot):
         try:
             MODAL_SELECTOR = "//*[@id='base-contextual-sign-in-modal']"
             LOGIN_BUTTON_POPUP_SELECTOR = f"{MODAL_SELECTOR}//div[@class='sign-in-modal']/button"
-            self._driver.cdp.click(LOGIN_BUTTON_POPUP_SELECTOR)
-            INPUT_USERNAME_SELECTOR = "//*[@id='base-sign-in-modal_session_key']"
-            INPUT_PASSWORD_SELECTOR = "//*[@id='base-sign-in-modal_session_password']"
-            BUTTON_SELECTOR = "//*[@id='base-sign-in-modal']/div/section/div/div/form/div[2]/button"
+            LOGIN_BUTTON_2 = f"/html/body/div[2]/a[1]"
+            if self._driver.cdp.is_element_present(LOGIN_BUTTON_POPUP_SELECTOR):
+                INPUT_USERNAME_SELECTOR = "//*[@id='base-sign-in-modal_session_key']"
+                INPUT_PASSWORD_SELECTOR = "//*[@id='base-sign-in-modal_session_password']"
+                BUTTON_SELECTOR = "//*[@id='base-sign-in-modal']/div/section/div/div/form/div[2]/button"
+                self._driver.cdp.click(LOGIN_BUTTON_POPUP_SELECTOR)
+            else:
+                INPUT_USERNAME_SELECTOR = "//*[@id='username']"
+                INPUT_PASSWORD_SELECTOR = "//*[@id='password']"
+                BUTTON_SELECTOR = "//*[@id='organic-div']/form/div[4]/button"
+                self._driver.cdp.click(LOGIN_BUTTON_2)
+            self._logger.info("Inicializando processo de login no linkedin...")
             self._driver.cdp.type(INPUT_USERNAME_SELECTOR, self._username)
             self._driver.cdp.type(INPUT_PASSWORD_SELECTOR, self._password)
             self._driver.cdp.click(BUTTON_SELECTOR)
+            self._logger.info("Login realizado com sucesso!")
             return True  # TODO: Usar um elemento para determina se o login foi bem sucedido
         except Exception as err:
             self._logger.error(f"Erro durante o login: {err}")
@@ -144,33 +158,56 @@ class LinkedinBot(JobBot):
             INPUT_LOCATION_ID = "//input[contains(@id, 'jobs-search-box-location')]"
             BUTTON_SEARCH_XPATH = "//*[@id='global-nav-search']/div/div[2]/button[1]"
         self._driver.cdp.type(INPUT_JOB_ID, search.job)
-        self._driver.cdp.type(INPUT_LOCATION_ID, search.location)  # FIXME: Arruma um jeito
+        self._driver.cdp.type(INPUT_LOCATION_ID, search.location)
         self._driver.cdp.click(BUTTON_SEARCH_XPATH)  # FIXME: Esse botão não tem efeito nenhum...
 
     def _get_job_list(self):
-        SELECTOR_CONTAINER = "//*[@id='main']/div/div[2]/div[1]/div"
-        SELECTOR_JOB_LIST = f"{SELECTOR_CONTAINER}/ul//a"
-        get_container = lambda: self._driver.cdp.find_element(SELECTOR_CONTAINER, timeout=15)
-        LAST_HEIGHT = get_container().get_attribute("scrollHeight")
+        SELECTORS = {
+            "container": "//*[@id='main-content']/section[2]",
+            "job_list": "//*[@class='jobs-search__results-list']//li/div",
+        }
+        if self._logged:
+            SELECTORS["container"] = "//*[@id='main']/div/div[2]/div[1]/div"
+            SELECTORS["job_list"] = SELECTORS["container"] + "/ul/li/div/div"
+            SELECTORS["footer"] = "//*[@id='jobs-search-results-footer']"
+            sort_by_date = "sortBy=DD"
+            url = self._driver.cdp.get_current_url()
+            if sort_by_date not in url:
+                url = "&".join([self._driver.cdp.get_current_url(), sort_by_date])
+                self._driver.cdp.get(url)
+                self._driver.cdp.sleep(3)
+            footer = self._driver.cdp.find_element(SELECTORS["footer"])
+            footer.scroll_into_view()
+            self._driver.cdp.sleep(3)
+        last_count = 0
+        stable_count = 0
         while True:
-            elements = self._driver.cdp.find_elements(SELECTOR_JOB_LIST, timeout=15)
-            elements[-1].scroll_into_view()
-            self._driver.cdp.sleep(1.5)
-            current_height = get_container().get_attribute("scrollHeight")
-            if current_height == LAST_HEIGHT:
-                elements[0].scroll_into_view()
-                break
-            self._logger.debug(f"Carregando vagas...")
-            LAST_HEIGHT = current_height
+            elements = self._driver.cdp.find_elements(SELECTORS["job_list"], timeout=15)
+            current_count = len(elements)
+            if current_count == last_count:
+                stable_count += 1
+                if stable_count >= 3:
+                    break
+            else:
+                stable_count = 0
+                self._logger.debug(f"Carregando jobs... (jobs: {current_count})")
+            if elements:
+                for el in elements:
+                    el.scroll_into_view()
+            self._driver.cdp.sleep(3)
+            last_count = current_count
+        if elements:
+            elements[0].scroll_into_view()
         return elements
 
     def _get_job_data(self, job: LinkedinJob, timeout=15):
-        WRAPPER = "//*[@class='jobs-search__job-details--wrapper']"
+        WRAPPER = "//*[contains(@class, 'details-pane__content')]"
         SELECTORS = {
-            "title": f"{WRAPPER}//a[@class='topcard__link']",
+            "title": f"{WRAPPER}//*[contains(@class, 'topcard__title')]",
             "company": f"{WRAPPER}//*[@class='topcard__flavor-row'][1]/span[1]",
             "location": f"{WRAPPER}//*[@class='topcard__flavor-row'][1]/span[2]",
-            "button": f"{WRAPPER}//div/button[contains(@class, 'sign-up')]",
+            "button": f"{WRAPPER}//button[contains(@class, 'sign-up')]",
+            "button_easy_application": f"{WRAPPER}//button[contains(@class, 'apply')]",
             "description": f"{WRAPPER}//*[contains(@class, 'description__text')]/section/div",
             "details": f"{WRAPPER}//*[@class='description__job-criteria-list']/li",
         }
@@ -182,8 +219,16 @@ class LinkedinBot(JobBot):
             SELECTORS["button"] = f"{WRAPPER}//*[@id='jobs-apply-button-id']"
             SELECTORS["description"] = f"{WRAPPER}//*[@id='job-details']/div"
             SELECTORS["details"] = f"{WRAPPER}//ul/li//span[contains(@class, 'ui-label')]/span"
-        BUTTON_ELEMENT = self._driver.cdp.find_element(SELECTORS["button"])
-        job.easy_application = "simplificada" in BUTTON_ELEMENT.text
+            SELECTORS["alert"] = f"{WRAPPER}//span[contains(@class, '__message')]"
+        if self._driver.cdp.is_element_present(SELECTORS["button"]):
+            BUTTON_ELEMENT = self._driver.cdp.find_element(SELECTORS["button"], timeout)
+            job.easy_application = "simplificada" in BUTTON_ELEMENT.text
+        elif self._driver.cdp.is_element_present(SELECTORS["button_easy_application"]):
+            BUTTON_ELEMENT = self._driver.cdp.find_element(SELECTORS["button_easy_application"], timeout)
+            job.easy_application = BUTTON_ELEMENT is not None
+        else:
+            self._driver.cdp.assert_element_present(SELECTORS["alert"], timeout)
+            return None
         job.title = self._driver.cdp.find_element(SELECTORS["title"], timeout).text
         job.company = self._driver.cdp.find_element(SELECTORS["company"], timeout).text
         job.location = self._driver.cdp.find_element(SELECTORS["location"], timeout).text
@@ -199,8 +244,8 @@ class LinkedinBot(JobBot):
                     key = sections[index + 1].text_fragment
                     key = key[len(HIDDEN_VALUE) : str(key).index(" é")]
                 else:
-                    value = self._driver.cdp.find_element(f"{SELECTORS['details']}[{index + 1}]/h3").text
-                    key = self._driver.cdp.find_element(f"{SELECTORS['details']}[{index + 1}]/span").text
+                    key = self._driver.cdp.find_element(f"{SELECTORS['details']}[{index + 1}]/h3").text
+                    value = self._driver.cdp.find_element(f"{SELECTORS['details']}[{index + 1}]/span").text
                 details[key] = value
             job.details = details
         return job

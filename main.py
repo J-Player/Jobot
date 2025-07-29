@@ -34,7 +34,7 @@ async def linkedin():
         username=os.getenv("LINKEDIN_USER"),
         password=os.getenv("LINKEDIN_PASS"),
         searches=configs.get_searches(bot),
-        filters=configs.get_filters(bot),
+        filters=configs.get_filters(),
     )
     bot = LinkedinBot(options)
     await bot.start()
