@@ -226,10 +226,10 @@ class IndeedBot(JobBot):
     async def _get_job_data(self, job: IndeedJob, backoff: int = 1):
         try:
             SELECTORS = {
-                "title": "//*[@id='viewJobSSRRoot']//h1/span",
+                "title": "//*[@id='jobsearch-ViewjobPaneWrapper']//h2/span",
                 "location": [
-                    "//*[@id='viewJobSSRRoot']/div[2]/div[3]/div/div/div[1]/div[2]/div[1]/div[2]/div/div/div/div",
-                    "//*[@id='viewJobSSRRoot']/div[2]/div[3]/div/div/div[1]/div[3]/div[1]/div[2]/div/div/div/div",
+                    "//*[@id='jobsearch-ViewjobPaneWrapper']//div[contains(@data-testid, 'company')]/div",
+                    "//*[@id='jobsearch-ViewjobPaneWrapper']/div[2]/div[3]/div/div/div[1]/div[3]/div[1]/div[2]/div/div/div/div",
                 ],
                 "company": "//*[@data-company-name]",
                 "button": '//*[@id="jobsearch-ViewJobButtons-container"]//button',
