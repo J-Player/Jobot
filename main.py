@@ -21,7 +21,7 @@ async def infojob():
     configs = InfoJobConfig()
     options = InfoJobBotOptions(
         username=os.getenv("INFOJOB_USER"),
-        username=os.getenv("INFOJOB_PASS"),
+        password=os.getenv("INFOJOB_PASS"),
         searches=configs.get_searches(bot),
         filters=configs.get_filters(),
     )
@@ -56,7 +56,7 @@ async def linkedin():
 
 if __name__ == "__main__":
     # Escolha um dos bots para executar
-    # asyncio.run(infojob())
+    asyncio.run(infojob())
     # asyncio.run(indeed())
     # asyncio.run(linkedin())
     pass
