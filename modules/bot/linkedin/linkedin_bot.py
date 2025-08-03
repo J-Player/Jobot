@@ -45,68 +45,73 @@ class LinkedinBot(JobBot):
             WRAPPER_SELECTOR = "//*[@class='two-pane-serp-page__detail-view']"
             if self._logged:
                 WRAPPER_SELECTOR = "//*[contains(@class, 'jobs-details__main-content')]"
-            async with self._captcha_condition:
-                for index, search in enumerate(self._searches, start=1):
-                    self._driver.cdp.sleep(5)
-                    self._search_job(search)
-                    self._logger.info(f"[{index} de {len(self._searches)}] Pesquisando vagas: {search.job} | Localização: {search.location}")
-                    # await self._captcha_condition.wait_for(lambda: not self._captcha_active)
-                    self._driver.cdp.sleep(5)
-                    if self._driver.cdp.is_element_present(WRAPPER_SELECTOR):
-                        contador = 0
-                        max_page = 5
-                        current_page = 1
-                        while True:
-                            self._driver.cdp.sleep(10)
-                            job_list_elements = self._get_job_list()
-                            RESULT = len(job_list_elements)
-                            if RESULT > 0:
-                                self._logger.info(f"Página: {current_page} | Total de resultados encontrados: {RESULT}")
-                                for i, job_element in enumerate(job_list_elements, start=1):
-                                    await asyncio.sleep(1.5)
-                                    # await self._captcha_condition.wait_for(lambda: not self._captcha_active)
-                                    job_element.click()
-                                    await asyncio.sleep(1)
-                                    # await self._captcha_condition.wait_for(lambda: not self._captcha_active)
-                                    CURRENT_URL = self._driver.cdp.get_current_url()
-                                    URL_PATTERN = r"currentJobId=(\d+)"
-                                    JOB_ID = re.search(URL_PATTERN, CURRENT_URL)[1]
-                                    if not await self._job_exists(JOB_ID):
-                                        job = LinkedinJob(id=JOB_ID)
-                                        job.url = f"https://www.linkedin.com/jobs/view/{JOB_ID}"
-                                        if self._get_job_data(job) is None:
-                                            self._logger.info(f"[{i} de {RESULT}] Job de ID {JOB_ID} expirou")
-                                        elif self._filter_job(job):
-                                            self._append_job(job)
-                                            self._logger.info(f"[{i} de {RESULT}] {job.title}: {job.url}")
-                                        else:
-                                            self._logger.info(f"[{i} de {RESULT}] Job de ID {JOB_ID} foi descartado")
+            for index, search in enumerate(self._searches, start=1):
+                self._driver.cdp.sleep(5)
+                self._search_job(search)
+                self._logger.info(f"[{index} de {len(self._searches)}] Pesquisando vagas: {search.job} | Localização: {search.location}")
+                async with self._captcha_condition:
+                    await self._captcha_condition.wait_for(lambda: not self._captcha_active)
+                self._driver.cdp.sleep(5)
+                if self._driver.cdp.is_element_present(WRAPPER_SELECTOR):
+                    contador = 0
+                    max_page = 5
+                    current_page = 1
+                    while True:
+                        self._driver.cdp.sleep(10)
+                        job_list_elements = self._get_job_list()
+                        RESULT = len(job_list_elements)
+                        if RESULT > 0:
+                            self._logger.info(f"Página: {current_page} | Total de resultados encontrados: {RESULT}")
+                            for i, job_element in enumerate(job_list_elements, start=1):
+                                await asyncio.sleep(1.5)
+                                async with self._captcha_condition:
+                                    await self._captcha_condition.wait_for(lambda: not self._captcha_active)
+                                job_element.click()
+                                await asyncio.sleep(1)
+                                async with self._captcha_condition:
+                                    await self._captcha_condition.wait_for(lambda: not self._captcha_active)
+                                CURRENT_URL = self._driver.cdp.get_current_url()
+                                URL_PATTERN = r"currentJobId=(\d+)"
+                                JOB_ID = re.search(URL_PATTERN, CURRENT_URL)[1]
+                                if not await self._job_exists(JOB_ID):
+                                    job = LinkedinJob(id=JOB_ID)
+                                    job.url = f"https://www.linkedin.com/jobs/view/{JOB_ID}"
+                                    if self._get_job_data(job) is None:
+                                        self._logger.info(f"[{i} de {RESULT}] Job de ID {JOB_ID} expirou")
+                                    elif self._filter_job(job):
+                                        self._append_job(job)
+                                        self._logger.info(f"[{i} de {RESULT}] {job.title}: {job.url}")
                                     else:
-                                        self._logger.info(f"[{i} de {RESULT}] Job de ID {JOB_ID} já foi extraído")
-                                await self._save_jobs()
-                            elif RESULT == 0:
-                                self._logger.debug("Nenhum resultado encontrado para esta pesquisa")
+                                        self._logger.info(f"[{i} de {RESULT}] Job de ID {JOB_ID} foi descartado")
+                                else:
+                                    self._logger.info(f"[{i} de {RESULT}] Job de ID {JOB_ID} já foi extraído")
+                            await self._save_jobs()
+                        elif RESULT == 0:
+                            self._logger.debug("Nenhum resultado encontrado para esta pesquisa")
+                            break
+                        if self._logged:
+                            contador += 1
+                            btn_next = self._next_page()
+                            if btn_next is None:
                                 break
-                            if self._logged:
-                                contador += 1
-                                btn_next = self._next_page()
-                                if btn_next is None:
-                                    break
-                                if contador >= max_page:
-                                    self._logger.debug("LIMITE DE PÁGINAS ATINGIDO.")
-                                    break
-                                btn_next.click()
-                                current_page += 1
-                            else:
+                            if contador >= max_page:
+                                self._logger.debug("LIMITE DE PÁGINAS ATINGIDO.")
                                 break
+                            btn_next.click()
+                            current_page += 1
+                        else:
+                            break
         except Exception as err:
             self._logger.error(err)
             await self._save_jobs()
             raise err
-        finally:
-            # self._captcha_task.cancel()
-            # await self._captcha_task
-            pass
+        # finally:
+            # if self._captcha_task:
+            #     self._captcha_task.cancel()
+            #     try:
+            #         await self._captcha_task
+            #     except asyncio.CancelledError:
+            #         pass
 
     def _next_page(self):
         NEXT_BUTTON_SELECTOR = "//*[@id='main-content']/section[2]/button"

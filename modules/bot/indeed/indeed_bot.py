@@ -35,73 +35,78 @@ class IndeedBot(JobBot):
 
     async def _start(self):
         try:
-            CAPTCHA_SELECTOR = "#ovEdv1 div div"
+            CAPTCHA_SELECTOR = "#RInW4 div div"
             WRAPPER_SELECTOR = "//*[@id='jobsearch-ViewjobPaneWrapper']"
             self._captcha_task = asyncio.create_task(self._captcha(CAPTCHA_SELECTOR))
             await asyncio.sleep(1)  # Pequeno delay para permitir a criação da task
-            async with self._captcha_condition:
-                self._logger.debug(f"Total de pesquisas para realizar: {len(self._searches)}")
-                for index, search in enumerate(self._searches, start=1):
-                    await asyncio.sleep(5)  # Aguarda a lista carregar...
-                    self._search_job(search)
-                    self._logger.info(f"[{index} de {len(self._searches)}] Pesquisando vagas: {search.job} | Localização: {search.location}.")
-                    await asyncio.sleep(3)
+            
+            self._logger.debug(f"Total de pesquisas para realizar: {len(self._searches)}")
+            for index, search in enumerate(self._searches, start=1):
+                await asyncio.sleep(5)  # Aguarda a lista carregar...
+                self._search_job(search)
+                self._logger.info(f"[{index} de {len(self._searches)}] Pesquisando vagas: {search.job} | Localização: {search.location}.")
+                await asyncio.sleep(3)
+                async with self._captcha_condition:
                     await self._captcha_condition.wait_for(lambda: not self._captcha_active)
-                    current_page = 1
-                    if self._driver.cdp.is_element_present(WRAPPER_SELECTOR):
-                        retry = True
-                        while True:
-                            await asyncio.sleep(5)
+                current_page = 1
+                if self._driver.cdp.is_element_present(WRAPPER_SELECTOR):
+                    retry = True
+                    while True:
+                        async with self._captcha_condition:
                             await self._captcha_condition.wait_for(lambda: not self._captcha_active)
-                            job_list_elements = self._get_job_list()
-                            RESULT = len(job_list_elements)
-                            self._logger.info(f"Página: {current_page} | Total de resultados encontrados: {RESULT}")
-                            try:
-                                for index, job_element in enumerate(job_list_elements, start=1):
-                                    await asyncio.sleep(1)
+                        job_list_elements = self._get_job_list()
+                        RESULT = len(job_list_elements)
+                        self._logger.info(f"Página: {current_page} | Total de resultados encontrados: {RESULT}")
+                        try:
+                            for index, job_element in enumerate(job_list_elements, start=1):
+                                async with self._captcha_condition:
                                     await self._captcha_condition.wait_for(lambda: not self._captcha_active)
-                                    JOB_ID = job_element.get_attribute("id").split("_")[1]  # TODO: Verificar se problema dos ~1800 segundos foi corrigido
-                                    if not await self._job_exists(JOB_ID):
-                                        job = IndeedJob(id=JOB_ID)
-                                        job.url = f"https://br.indeed.com/viewjob?jk={JOB_ID}"
-                                        job_element.click()
-                                        await asyncio.sleep(1)
+                                JOB_ID = job_element.get_attribute("id").split("_")[1]  # TODO: Verificar se problema dos ~1800 segundos foi corrigido
+                                if not await self._job_exists(JOB_ID):
+                                    job = IndeedJob(id=JOB_ID)
+                                    job.url = f"https://br.indeed.com/viewjob?jk={JOB_ID}"
+                                    job_element.click()
+                                    async with self._captcha_condition:
                                         await self._captcha_condition.wait_for(lambda: not self._captcha_active)
-                                        if not await self._get_job_data(job):
-                                            retry = False
-                                            raise Exception(f"Erro ao extrair dados do job de ID {JOB_ID}")
-                                        if self._filter_job(job):
-                                            self._append_job(job)
-                                            self._logger.info(f"[{index} de {RESULT}] {job.title}: {job.url}")
-                                        else:
-                                            self._logger.info(f"[{index} de {RESULT}] Job de ID {JOB_ID} foi descartado")
-                                        self._driver.cdp.go_back()
+                                    if not await self._get_job_data(job):
+                                        retry = False
+                                        raise Exception(f"Erro ao extrair dados do job de ID {JOB_ID}")
+                                    if self._filter_job(job):
+                                        self._append_job(job)
+                                        self._logger.info(f"[{index} de {RESULT}] {job.title}: {job.url}")
                                     else:
-                                        self._logger.info(f"[{index} de {RESULT}] Job de ID {JOB_ID} já foi extraído")
-                            except Exception as err:
-                                if retry:
-                                    retry = False
-                                    self._logger.warning(f"Erro ao extrair jobs da página {current_page}: {err}")
-                                    self._logger.warning(f"Realizando uma última tentativa...")
-                                    continue
-                                self._logger.error(f"Não foi possivel extrair jobs da página {current_page}: {err}")
-                                raise err
-                            await self._save_jobs()
-                            next_button = self._next_page()
-                            if next_button is None:
-                                break
-                            next_button.click()
-                            retry = True
-                            current_page += 1
-                    else:
-                        self._logger.debug(f"Nenhum resultado encontrado para essa pesquisa")
+                                        self._logger.info(f"[{index} de {RESULT}] Job de ID {JOB_ID} foi descartado")
+                                    self._driver.cdp.go_back()
+                                else:
+                                    self._logger.info(f"[{index} de {RESULT}] Job de ID {JOB_ID} já foi extraído")
+                        except Exception as err:
+                            if retry:
+                                retry = False
+                                self._logger.warning(f"Erro ao extrair jobs da página {current_page}: {err}")
+                                self._logger.warning(f"Realizando uma última tentativa...")
+                                continue
+                            self._logger.error(f"Não foi possivel extrair jobs da página {current_page}: {err}")
+                            raise err
+                        await self._save_jobs()
+                        next_button = self._next_page()
+                        if next_button is None:
+                            break
+                        next_button.click()
+                        retry = True
+                        current_page += 1
+                else:
+                    self._logger.debug(f"Nenhum resultado encontrado para essa pesquisa")
         except Exception as err:
             self._logger.error(err)
             await self._save_jobs()
             raise err
         finally:
-            self._captcha_task.cancel()
-            await self._captcha_task
+            if self._captcha_task:
+                self._captcha_task.cancel()
+                try:
+                    await self._captcha_task
+                except asyncio.CancelledError:
+                    pass
 
     async def _login(self, timeout: int = 30):
         """Realiza o login com autenticação de dois fatores.

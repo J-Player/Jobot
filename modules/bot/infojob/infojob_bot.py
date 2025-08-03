@@ -38,61 +38,63 @@ class InfoJobBot(JobBot):
 
     async def _start(self):
         try:
-            # CAPTCHA_SELECTOR = "#JnAv0 div div"
+            # CAPTCHA_SELECTOR = "" # TODO: Descobrir o selector do infojob para captcha
             WRAPPER_SELECTOR = "//*[@id='filterSideBar']"
             # self._captcha_task = asyncio.create_task(self._captcha(CAPTCHA_SELECTOR))
             # await asyncio.sleep(1)  # Pequeno delay para permitir a criação da task
-            async with self._captcha_condition:
-                self._logger.debug(f"Total de pesquisas para realizar: {len(self._searches)}")
-                for index, search in enumerate(self._searches, start=1):
-                    self._driver.cdp.sleep(5)  # Aguarda a lista carregar...
-                    self._search_job(search)
-                    self._logger.info(
-                        f"[{index} de {len(self._searches)}] Pesquisando vagas: {search.job} | Localização: {search.location}."
-                    )
-                    # await self._captcha_condition.wait_for(lambda: not self._captcha_active)
-                    self._driver.cdp.sleep(5)  # Aguarda a lista carregar...
-                    if self._driver.cdp.is_element_present(WRAPPER_SELECTOR):
-                        OFFSET = 0
-                        while True:
-                            self._driver.cdp.sleep(5)
-                            job_list_elements = self._get_job_list()[OFFSET:]
-                            RESULT = len(job_list_elements)
-                            if RESULT == 0:
-                                break
-                            self._logger.info(f"Total de resultados encontrados: {RESULT}")
-                            for index, job_element in enumerate(job_list_elements, start=1):
-                                JOB_ID = job_element.get_attribute("data-id")
-                                job_element.click()
-                                # await self._captcha_condition.wait_for(lambda: not self._captcha_active)
-                                if not await self._job_exists(JOB_ID):
-                                    job = InfoJobJob(id=JOB_ID)
-                                    job.url = f"https://www.infojobs.com.br{job_element.get_attribute('data-href')}"
-                                    posted_at = job_element.query_selector("div.d-flex > div.mr-8 > div:nth-child(1) > div")
-                                    posted_at = posted_at.get_attribute("data-value")
-                                    posted_at = datetime.strptime(posted_at, "%Y/%m/%d %H:%M:%S")
-                                    job.posted_at = posted_at
-                                    self._get_job_data(job)
-                                    if self._filter_job(job):
-                                        self._append_job(job)
-                                        self._logger.info(f"[{index} de {RESULT}] {job.title}: {job.url}")
-                                    else:
-                                        self._logger.info(f"[{index} de {RESULT}] Job de ID {JOB_ID} foi descartado")
+            self._logger.debug(f"Total de pesquisas para realizar: {len(self._searches)}")
+            for index, search in enumerate(self._searches, start=1):
+                self._driver.cdp.sleep(5)  # Aguarda a lista carregar...
+                self._search_job(search)
+                self._logger.info(f"[{index} de {len(self._searches)}] Pesquisando vagas: {search.job} | Localização: {search.location}.")
+                async with self._captcha_condition:
+                    await self._captcha_condition.wait_for(lambda: not self._captcha_active)
+                self._driver.cdp.sleep(5)  # Aguarda a lista carregar...
+                if self._driver.cdp.is_element_present(WRAPPER_SELECTOR):
+                    OFFSET = 0
+                    while True:
+                        self._driver.cdp.sleep(5)
+                        job_list_elements = self._get_job_list()[OFFSET:]
+                        RESULT = len(job_list_elements)
+                        if RESULT == 0:
+                            break
+                        self._logger.info(f"Total de resultados encontrados: {RESULT}")
+                        for index, job_element in enumerate(job_list_elements, start=1):
+                            JOB_ID = job_element.get_attribute("data-id")
+                            job_element.click()
+                            async with self._captcha_condition:
+                                await self._captcha_condition.wait_for(lambda: not self._captcha_active)
+                            if not await self._job_exists(JOB_ID):
+                                job = InfoJobJob(id=JOB_ID)
+                                job.url = f"https://www.infojobs.com.br{job_element.get_attribute('data-href')}"
+                                # posted_at = job_element.query_selector("div.d-flex > div.mr-8 > div:nth-child(1) > div")
+                                # posted_at = posted_at.get_attribute("data-value")
+                                # posted_at = datetime.strptime(posted_at, "%Y/%m/%d %H:%M:%S")
+                                # job.posted_at = posted_at
+                                self._get_job_data(job)
+                                if self._filter_job(job):
+                                    self._append_job(job)
+                                    self._logger.info(f"[{index} de {RESULT}] {job.title}: {job.url}")
                                 else:
-                                    self._logger.info(f"[{index} de {RESULT}] Job de ID {JOB_ID} já foi extraído")
-                            await self._save_jobs()
-                            self._driver.cdp.scroll_to_bottom()
-                            self._logger.debug("Carregando mais vagas...")
-                            OFFSET += RESULT
-                    else:
-                        self._logger.debug(f"Nenhum resultado encontrado para essa pesquisa")
+                                    self._logger.info(f"[{index} de {RESULT}] Job de ID {JOB_ID} foi descartado")
+                            else:
+                                self._logger.info(f"[{index} de {RESULT}] Job de ID {JOB_ID} já foi extraído")
+                        await self._save_jobs()
+                        self._driver.cdp.scroll_to_bottom()
+                        self._logger.debug("Carregando mais vagas...")
+                        OFFSET += RESULT
+                else:
+                    self._logger.debug(f"Nenhum resultado encontrado para essa pesquisa")
         except Exception as err:
             self._logger.error(err)
             await self._save_jobs()
-        finally:
-            # self._captcha_task.cancel()
-            # await self._captcha_task
-            pass
+        # finally:
+        #     if self._captcha_task:
+        #         self._captcha_task.cancel()
+        #         try:
+        #             await self._captcha_task
+        #         except asyncio.CancelledError:
+        #             pass
 
     async def _login(self, timeout: int = 30):
         """Realiza o login com autenticação de dois fatores.
