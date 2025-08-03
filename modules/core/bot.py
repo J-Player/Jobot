@@ -100,6 +100,11 @@ class Bot(ABC):
                 await asyncio.sleep(0.5)  # Verificação periódica
                 # Verificação mais robusta do elemento
                 if not self._driver.cdp.is_element_present(selector_captcha):
+                    # Garante que _captcha_active seja False quando não há captcha
+                    if self._captcha_active:
+                        async with self._captcha_condition:
+                            self._captcha_active = False
+                            self._captcha_condition.notify_all()
                     continue
                 self._logger.debug("🔍 Captcha detectado! Pausando processamento...")
                 # Ativação do estado de captcha
@@ -111,7 +116,9 @@ class Bot(ABC):
                     await self._captcha_resolve(selector_captcha)
                 except Exception as e:
                     self._logger.warning(f"⚠️ Erro ao resolver captcha: {str(e)}")
-                    continue  # Tenta novamente na próxima iteração
+                    # Continue sem resetar _captcha_active aqui - será resetado na próxima verificação
+                    continue
+                # Só reseta se chegou até aqui (resolução bem-sucedida)
                 async with self._captcha_condition:
                     self._captcha_active = False
                     self._logger.debug("✅ Captcha resolvido! Retomando processamento...\n")
